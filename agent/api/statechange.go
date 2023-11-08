@@ -19,16 +19,26 @@ import (
 	"time"
 
 	apicontainer "github.com/aws/amazon-ecs-agent/agent/api/container"
+	ecsclient "github.com/aws/amazon-ecs-agent/agent/api/ecsclient"
 	apitask "github.com/aws/amazon-ecs-agent/agent/api/task"
 	"github.com/aws/amazon-ecs-agent/agent/statechange"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/api/attachment"
 	apicontainerstatus "github.com/aws/amazon-ecs-agent/ecs-agent/api/container/status"
+	api "github.com/aws/amazon-ecs-agent/ecs-agent/api/ecs"
+	ecs "github.com/aws/amazon-ecs-agent/ecs-agent/api/ecs/model/ecs"
 	apitaskstatus "github.com/aws/amazon-ecs-agent/ecs-agent/api/task/status"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/logger"
 	ni "github.com/aws/amazon-ecs-agent/ecs-agent/netlib/model/networkinterface"
+	"github.com/docker/go-connections/nat"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/pkg/errors"
+)
+
+const (
+	// ecsMaxNetworkBindingsLength is the maximum length of the ecs.NetworkBindings list sent as part of the
+	// container state change payload. Currently, this is enforced only when containerPortRanges are requested.
+	ecsMaxNetworkBindingsLength = 100
 )
 
 // ContainerStateChange represents a state change that needs to be sent to the
@@ -376,4 +386,206 @@ func (ts TaskStateChange) GetEventType() statechange.EventType {
 // GetEventType returns an enum identifying the event type
 func (AttachmentStateChange) GetEventType() statechange.EventType {
 	return statechange.AttachmentEvent
+}
+
+func (tsc *TaskStateChange) ToECSAgent() (*api.TaskStateChange, error) {
+	output := &api.TaskStateChange{
+		Attachment:         tsc.Attachment,
+		TaskARN:            tsc.TaskARN,
+		Status:             tsc.Status,
+		Reason:             tsc.Reason,
+		PullStartedAt:      tsc.PullStartedAt,
+		PullStoppedAt:      tsc.PullStoppedAt,
+		ExecutionStoppedAt: tsc.ExecutionStoppedAt,
+		MetadataGetter:     NewTaskMetadataGetter(tsc.Task),
+	}
+
+	for _, managedAgentEvent := range tsc.ManagedAgents {
+		if mgspl := BuildManagedAgentStateChangePayload(managedAgentEvent); mgspl != nil {
+			output.ManagedAgents = append(output.ManagedAgents, mgspl)
+		}
+	}
+
+	containerEvents := make([]*ecs.ContainerStateChange, len(tsc.Containers))
+	for i, containerEvent := range tsc.Containers {
+		payload, err := BuildContainerStateChangePayload(containerEvent)
+		if err != nil {
+			logger.Error(fmt.Sprintf("Could not convert agent task state change to ecs-agent task state change: [%s]: %v",
+				tsc.String(), err))
+			return nil, err
+		}
+		containerEvents[i] = payload
+	}
+	output.Containers = containerEvents
+
+	return output, nil
+
+}
+
+func (csc *ContainerStateChange) ToECSAgent() (*api.ContainerStateChange, error) {
+	output := &api.ContainerStateChange{
+		TaskArn:        csc.TaskArn,
+		RuntimeID:      csc.RuntimeID,
+		ContainerName:  csc.ContainerName,
+		Status:         csc.Status,
+		ImageDigest:    csc.ImageDigest,
+		Reason:         csc.Reason,
+		ExitCode:       csc.ExitCode,
+		MetadataGetter: NewContainerMetadataGetter(csc.Container),
+	}
+
+	networkBindings := getNetworkBindings(csc.Container)
+	// we enforce a limit on the no. of network bindings for containers with at-least 1 port range requested.
+	// this limit is enforced by ECS, and we fail early and don't call SubmitContainerStateChange.
+	if csc.Container.HasPortRange() && len(networkBindings) > ecsMaxNetworkBindingsLength {
+		return nil, fmt.Errorf("no. of network bindings %v is more than the maximum supported no. %v, "+
+			"container: %s "+"task: %s", len(networkBindings), ecsMaxNetworkBindingsLength, csc.ContainerName, csc.TaskArn)
+	}
+	output.NetworkBindings = networkBindings
+
+	return output, nil
+}
+
+func (asc *AttachmentStateChange) ToECSAgent() (*api.AttachmentStateChange, error) {
+	attachment, ok := asc.Attachment.(*ni.ENIAttachment)
+	if !ok {
+		err := errors.New(fmt.Sprintf("Failed to convert agent attachment state change to ecs-agent attachment state change: %s", asc.String()))
+		logger.Error(err.Error())
+		return nil, err
+	}
+
+	return &api.AttachmentStateChange{
+		Attachment: attachment,
+	}, nil
+}
+
+func trimString(inputString string, maxLen int) string {
+	if len(inputString) > maxLen {
+		trimmed := inputString[0:maxLen]
+		return trimmed
+	} else {
+		return inputString
+	}
+}
+
+func BuildManagedAgentStateChangePayload(change ManagedAgentStateChange) *ecs.ManagedAgentStateChange {
+	if !change.Status.ShouldReportToBackend() {
+		logger.Warn(fmt.Sprintf("Not submitting unsupported managed agent state %s for container %s in task %s",
+			change.Status.String(), change.Container.Name, change.TaskArn))
+		return nil
+	}
+	var trimmedReason *string
+	if change.Reason != "" {
+		trimmedReason = aws.String(trimString(change.Reason, ecsclient.ECSMaxContainerReasonLength))
+	}
+	return &ecs.ManagedAgentStateChange{
+		ManagedAgentName: aws.String(change.Name),
+		ContainerName:    aws.String(change.Container.Name),
+		Status:           aws.String(change.Status.String()),
+		Reason:           trimmedReason,
+	}
+}
+
+func BuildContainerStateChangePayload(change api.ContainerStateChange) (*ecs.ContainerStateChange, error) {
+	statechange := &ecs.ContainerStateChange{
+		ContainerName: aws.String(change.ContainerName),
+	}
+	if change.RuntimeID != "" {
+		trimmedRuntimeID := trimString(change.RuntimeID, ecsclient.ECSMaxRuntimeIDLength)
+		statechange.RuntimeId = aws.String(trimmedRuntimeID)
+	}
+	if change.Reason != "" {
+		trimmedReason := trimString(change.Reason, ecsclient.ECSMaxContainerReasonLength)
+		statechange.Reason = aws.String(trimmedReason)
+	}
+	if change.ImageDigest != "" {
+		trimmedImageDigest := trimString(change.ImageDigest, ecsclient.ECSMaxImageDigestLength)
+		statechange.ImageDigest = aws.String(trimmedImageDigest)
+	}
+	status := change.Status
+
+	if status != apicontainerstatus.ContainerStopped && status != apicontainerstatus.ContainerRunning {
+		logger.Warn(fmt.Sprintf("Not submitting unsupported upstream container state %s for container %s in task %s",
+			status.String(), change.ContainerName, change.TaskArn))
+		return nil, nil
+	}
+	stat := change.Status.String()
+	if stat == "DEAD" {
+		stat = apicontainerstatus.ContainerStopped.String()
+	}
+	statechange.Status = aws.String(stat)
+
+	if change.ExitCode != nil {
+		exitCode := int64(aws.IntValue(change.ExitCode))
+		statechange.ExitCode = aws.Int64(exitCode)
+	}
+
+	networkBindings := getNetworkBindings(change.NetworkBindings)
+	// we enforce a limit on the no. of network bindings for containers with at-least 1 port range requested.
+	// this limit is enforced by ECS, and we fail early and don't call SubmitContainerStateChange.
+	if change.Container.HasPortRange() && len(networkBindings) > ecsMaxNetworkBindingsLength {
+		return nil, fmt.Errorf("no. of network bindings %v is more than the maximum supported no. %v, "+
+			"container: %s "+"task: %s", len(networkBindings), ecsMaxNetworkBindingsLength, change.ContainerName, change.TaskArn)
+	}
+	statechange.NetworkBindings = networkBindings
+
+	return statechange, nil
+}
+
+// getNetworkBindings returns the list of networkingBindings, sent to ECS as part of the container state change payload
+func getNetworkBindings(container *apicontainer.Container) []*ecs.NetworkBinding {
+	networkBindings := []*ecs.NetworkBinding{}
+	// hostPortToProtocolBindIPMap is a map to store protocol and bindIP information associated to host ports
+	// that belong to a range. This is used in case when there are multiple protocol/bindIP combinations associated to a
+	// port binding. example: when both IPv4 and IPv6 bindIPs are populated by docker and shouldExcludeIPv6PortBinding is false.
+	hostPortToProtocolBindIPMap := map[int64][]ecsclient.ProtocolBindIP{}
+
+	// ContainerPortSet consists of singular ports, and ports that belong to a range, but for which we were not able to
+	// find contiguous host ports and ask docker to pick instead.
+	containerPortSet := container.GetContainerPortSet()
+	// each entry in the ContainerPortRangeMap implies that we found a contiguous host port range for the same
+	containerPortRangeMap := container.GetContainerPortRangeMap()
+
+	for _, binding := range container.NetworkBindings {
+		hostPort := int64(*binding.HostPort)
+		containerPort := int64(*binding.ContainerPort)
+		bindIP := aws.StringValue(binding.BindIP)
+		protocol := aws.StringValue(binding.Protocol)
+
+		// create network binding for each containerPort that exists in the singular ContainerPortSet
+		// for container ports that belong to a range, we'll have 1 consolidated network binding for the range
+		if _, ok := containerPortSet[int(containerPort)]; ok {
+			networkBindings = append(networkBindings, &ecs.NetworkBinding{
+				BindIP:        aws.String(bindIP),
+				ContainerPort: aws.Int64(containerPort),
+				HostPort:      aws.Int64(hostPort),
+				Protocol:      aws.String(protocol),
+			})
+		} else {
+			// populate hostPortToProtocolBindIPMap – this is used below when we construct network binding for ranges.
+			hostPortToProtocolBindIPMap[hostPort] = append(hostPortToProtocolBindIPMap[hostPort],
+				ecsclient.ProtocolBindIP{
+					Protocol: protocol,
+					BindIP:   bindIP,
+				})
+		}
+	}
+
+	for containerPortRange, hostPortRange := range containerPortRangeMap {
+		// we check for protocol and bindIP information associated to any one of the host ports from the hostPortRange,
+		// all ports belonging to the same range share this information.
+		hostPort, _, _ := nat.ParsePortRangeToInt(hostPortRange)
+		if val, ok := hostPortToProtocolBindIPMap[int64(hostPort)]; ok {
+			for _, v := range val {
+				networkBindings = append(networkBindings, &ecs.NetworkBinding{
+					BindIP:             aws.String(v.BindIP),
+					ContainerPortRange: aws.String(containerPortRange),
+					HostPortRange:      aws.String(hostPortRange),
+					Protocol:           aws.String(v.Protocol),
+				})
+			}
+		}
+	}
+
+	return networkBindings
 }

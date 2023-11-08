@@ -45,10 +45,10 @@ import (
 )
 
 const (
-	ecsMaxImageDigestLength     = 255
-	ecsMaxContainerReasonLength = 255
+	ECSMaxImageDigestLength     = 255
+	ECSMaxContainerReasonLength = 255
 	ecsMaxTaskReasonLength      = 1024
-	ecsMaxRuntimeIDLength       = 255
+	ECSMaxRuntimeIDLength       = 255
 	pollEndpointCacheTTL        = 12 * time.Hour
 	azAttrName                  = "ecs.availability-zone"
 	cpuArchAttrName             = "ecs.cpu-architecture"
@@ -462,14 +462,14 @@ func (client *APIECSClient) SubmitTaskStateChange(change api.TaskStateChange) er
 	}
 
 	for _, managedAgentEvent := range change.ManagedAgents {
-		if mgspl := client.buildManagedAgentStateChangePayload(managedAgentEvent); mgspl != nil {
+		if mgspl := BuildManagedAgentStateChangePayload(managedAgentEvent); mgspl != nil {
 			req.ManagedAgents = append(req.ManagedAgents, mgspl)
 		}
 	}
 
 	containerEvents := make([]*ecs.ContainerStateChange, len(change.Containers))
 	for i, containerEvent := range change.Containers {
-		payload, err := client.buildContainerStateChangePayload(containerEvent, client.config.ShouldExcludeIPv6PortBinding.Enabled())
+		payload, err := BuildContainerStateChangePayload(containerEvent, client.config.ShouldExcludeIPv6PortBinding.Enabled())
 		if err != nil {
 			seelog.Errorf("Could not submit task state change: [%s]: %v", change.String(), err)
 			return err
@@ -497,7 +497,7 @@ func trimString(inputString string, maxLen int) string {
 	}
 }
 
-func (client *APIECSClient) buildManagedAgentStateChangePayload(change api.ManagedAgentStateChange) *ecs.ManagedAgentStateChange {
+func BuildManagedAgentStateChangePayload(change api.ManagedAgentStateChange) *ecs.ManagedAgentStateChange {
 	if !change.Status.ShouldReportToBackend() {
 		seelog.Warnf("Not submitting unsupported managed agent state %s for container %s in task %s",
 			change.Status.String(), change.Container.Name, change.TaskArn)
@@ -515,7 +515,7 @@ func (client *APIECSClient) buildManagedAgentStateChangePayload(change api.Manag
 	}
 }
 
-func (client *APIECSClient) buildContainerStateChangePayload(change api.ContainerStateChange, shouldExcludeIPv6PortBinding bool) (*ecs.ContainerStateChange, error) {
+func BuildContainerStateChangePayload(change api.ContainerStateChange, shouldExcludeIPv6PortBinding bool) (*ecs.ContainerStateChange, error) {
 	statechange := &ecs.ContainerStateChange{
 		ContainerName: aws.String(change.ContainerName),
 	}
@@ -563,8 +563,8 @@ func (client *APIECSClient) buildContainerStateChangePayload(change api.Containe
 
 // ProtocolBindIP used to store protocol and bindIP information associated to a particular host port
 type ProtocolBindIP struct {
-	protocol string
-	bindIP   string
+	Protocol string
+	BindIP   string
 }
 
 // getNetworkBindings returns the list of networkingBindings, sent to ECS as part of the container state change payload
@@ -631,7 +631,7 @@ func getNetworkBindings(change api.ContainerStateChange, shouldExcludeIPv6PortBi
 }
 
 func (client *APIECSClient) SubmitContainerStateChange(change api.ContainerStateChange) error {
-	pl, err := client.buildContainerStateChangePayload(change, client.config.ShouldExcludeIPv6PortBinding.Enabled())
+	pl, err := BuildContainerStateChangePayload(change, client.config.ShouldExcludeIPv6PortBinding.Enabled())
 	if err != nil {
 		seelog.Errorf("Could not build container state change payload: [%s]: %v", change.String(), err)
 		return err

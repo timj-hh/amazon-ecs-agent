@@ -361,3 +361,7 @@ func TestNewManagedAgentChangeEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestAttachmentStateChangeECSAgentConversion(t *testing.T) {
+
+}
