@@ -19,10 +19,10 @@ import (
 	"time"
 
 	"github.com/aws/amazon-ecs-agent/ecs-agent/api/attachment"
+	"github.com/aws/amazon-ecs-agent/ecs-agent/api/attachment/eni"
 	apicontainerstatus "github.com/aws/amazon-ecs-agent/ecs-agent/api/container/status"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/api/ecs/model/ecs"
 	apitaskstatus "github.com/aws/amazon-ecs-agent/ecs-agent/api/task/status"
-	ni "github.com/aws/amazon-ecs-agent/ecs-agent/netlib/model/networkinterface"
 )
 
 // ContainerMetadataGetter retrieves specific information about a given container that ECS client is concerned with.
@@ -72,7 +72,7 @@ type ContainerStateChange struct {
 // SubmitTaskStateChange API.
 type TaskStateChange struct {
 	// Attachment is the ENI attachment object to send.
-	Attachment *ni.ENIAttachment
+	Attachment *eni.ENIAttachment
 	// TaskArn is the unique identifier for the task.
 	TaskARN string
 	// Status is the status to send.

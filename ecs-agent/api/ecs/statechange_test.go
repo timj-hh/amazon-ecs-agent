@@ -23,11 +23,11 @@ import (
 	"time"
 
 	"github.com/aws/amazon-ecs-agent/ecs-agent/api/attachment"
+	"github.com/aws/amazon-ecs-agent/ecs-agent/api/attachment/eni"
 	apicontainerstatus "github.com/aws/amazon-ecs-agent/ecs-agent/api/container/status"
 	mock_statechange "github.com/aws/amazon-ecs-agent/ecs-agent/api/ecs/mocks/statechange"
 	"github.com/aws/amazon-ecs-agent/ecs-agent/api/ecs/model/ecs"
 	apitaskstatus "github.com/aws/amazon-ecs-agent/ecs-agent/api/task/status"
-	ni "github.com/aws/amazon-ecs-agent/ecs-agent/netlib/model/networkinterface"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
@@ -104,7 +104,7 @@ func TestTaskStateChangeString(t *testing.T) {
 	change := &TaskStateChange{
 		TaskARN: taskArn,
 		Status:  apitaskstatus.TaskRunning,
-		Attachment: &ni.ENIAttachment{
+		Attachment: &eni.ENIAttachment{
 			AttachmentInfo: attachment.AttachmentInfo{
 				AttachmentARN: attachmentArn,
 			},
@@ -146,7 +146,7 @@ func TestTaskStateChangeString(t *testing.T) {
 
 func TestAttachmentStateChangeString(t *testing.T) {
 	change := &AttachmentStateChange{
-		Attachment: &ni.ENIAttachment{
+		Attachment: &eni.ENIAttachment{
 			AttachmentInfo: attachment.AttachmentInfo{
 				AttachmentARN:    attachmentArn,
 				Status:           attachment.AttachmentAttached,
