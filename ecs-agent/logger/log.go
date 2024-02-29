@@ -318,6 +318,18 @@ func SetRolloverType(rolloverType string) {
 	}
 }
 
+func SetMaxRollCount(maxRollCount int) {
+	if maxRollCount >= 0 {
+		Config.lock.Lock()
+		defer Config.lock.Unlock()
+
+		Config.MaxRollCount = maxRollCount
+		reloadConfig()
+	} else {
+		seelog.Error("Max rolls must not be negative")
+	}
+}
+
 // SetTimestampFormat sets the time formatting
 // for custom seelog formatters. It will expect
 // a valid time format such as time.RFC3339
