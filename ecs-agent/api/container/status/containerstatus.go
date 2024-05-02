@@ -22,6 +22,8 @@ import (
 const (
 	// ContainerStatusNone is the zero state of a container; this container has not completed pull
 	ContainerStatusNone ContainerStatus = iota
+	// ContainerPending is an intermediate backend recognized state of the container. It is not running.
+	ContainerPending
 	// ContainerManifestPulled represents a container which has had its image manifest pulled
 	ContainerManifestPulled
 	// ContainerPulled represents a container which has had the image pulled
@@ -60,6 +62,7 @@ type ContainerHealthStatus int32
 
 var containerStatusMap = map[string]ContainerStatus{
 	"NONE":                  ContainerStatusNone,
+	"PENDING":               ContainerPending,
 	"MANIFEST_PULLED":       ContainerManifestPulled,
 	"PULLED":                ContainerPulled,
 	"CREATED":               ContainerCreated,
@@ -113,7 +116,7 @@ func (cs *ContainerStatus) BackendStatus(steadyStateStatus ContainerStatus) Cont
 		return ContainerStopped
 	}
 
-	return ContainerStatusNone
+	return ContainerPending
 }
 
 // Terminal returns true if the container status is STOPPED
