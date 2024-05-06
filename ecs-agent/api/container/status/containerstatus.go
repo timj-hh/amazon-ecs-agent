@@ -103,17 +103,16 @@ func (cs *ContainerStatus) ShouldReportToBackend(steadyStateStatus ContainerStat
 }
 
 // BackendStatus maps the internal container status in the agent to that in the
-// backend
-func (cs *ContainerStatus) BackendStatus(steadyStateStatus ContainerStatus) ContainerStatus {
-	if *cs == steadyStateStatus {
-		return ContainerRunning
+// backend.
+func (cs *ContainerStatus) BackendStatus() string {
+	switch *cs {
+	case ContainerRunning, ContainerResourcesProvisioned:
+		return ContainerRunning.String()
+	case ContainerStopped:
+		return cs.String()
+	default:
+		return "PENDING"
 	}
-
-	if *cs == ContainerStopped {
-		return ContainerStopped
-	}
-
-	return ContainerStatusNone
 }
 
 // Terminal returns true if the container status is STOPPED

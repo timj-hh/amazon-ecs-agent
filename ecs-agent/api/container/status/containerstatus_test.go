@@ -64,44 +64,38 @@ func TestShouldReportToBackend(t *testing.T) {
 
 }
 
+// TestBackendStatus verifies that the accepted backend container statuses are translated.
+// Today, the backend accepts one of "PENDING", "RUNNING" and "STOPPED".
 func TestBackendStatus(t *testing.T) {
-	// BackendStatus is ContainerStatusNone when container status is ContainerStatusNone
+	ContainerPending := "PENDING"
+
+	// BackendStatus is ContainerPending when container status is ContainerPending
 	var containerStatus ContainerStatus
-	assert.Equal(t, containerStatus.BackendStatus(ContainerRunning), ContainerStatusNone)
-	assert.Equal(t, containerStatus.BackendStatus(ContainerResourcesProvisioned), ContainerStatusNone)
+	assert.Equal(t, containerStatus.BackendStatus(), ContainerPending)
 
-	// BackendStatus is still ContainerStatusNone when container status is ContainerManifestPulled
 	containerStatus = ContainerManifestPulled
-	assert.Equal(t, containerStatus.BackendStatus(ContainerRunning), ContainerStatusNone)
-	assert.Equal(t, containerStatus.BackendStatus(ContainerResourcesProvisioned), ContainerStatusNone)
+	// BackendStatus is still ContainerPending when container status is ContainerManifestPulled
+	assert.Equal(t, containerStatus.BackendStatus(), ContainerPending)
 
-	// BackendStatus is still ContainerStatusNone when container status is ContainerPulled
+	// BackendStatus is still ContainerPending when container status is ContainerPulled
 	containerStatus = ContainerPulled
-	assert.Equal(t, containerStatus.BackendStatus(ContainerRunning), ContainerStatusNone)
-	assert.Equal(t, containerStatus.BackendStatus(ContainerResourcesProvisioned), ContainerStatusNone)
+	assert.Equal(t, containerStatus.BackendStatus(), ContainerPending)
 
-	// BackendStatus is still ContainerStatusNone when container status is ContainerCreated
 	containerStatus = ContainerCreated
-	assert.Equal(t, containerStatus.BackendStatus(ContainerRunning), ContainerStatusNone)
-	assert.Equal(t, containerStatus.BackendStatus(ContainerResourcesProvisioned), ContainerStatusNone)
+	// BackendStatus is still ContainerPending when container status is ContainerCreated
+	assert.Equal(t, containerStatus.BackendStatus(), ContainerPending)
 
 	containerStatus = ContainerRunning
 	// BackendStatus is ContainerRunning when container status is ContainerRunning
-	// and steady state is ContainerRunning
-	assert.Equal(t, containerStatus.BackendStatus(ContainerRunning), ContainerRunning)
-	// BackendStatus is still ContainerStatusNone when container status is ContainerRunning
-	// and steady state is ContainerResourcesProvisioned
-	assert.Equal(t, containerStatus.BackendStatus(ContainerResourcesProvisioned), ContainerStatusNone)
+	assert.Equal(t, containerStatus.BackendStatus(), ContainerRunning.String())
 
 	containerStatus = ContainerResourcesProvisioned
 	// BackendStatus is still ContainerRunning when container status is ContainerResourcesProvisioned
-	// and steady state is ContainerResourcesProvisioned
-	assert.Equal(t, containerStatus.BackendStatus(ContainerResourcesProvisioned), ContainerRunning)
+	assert.Equal(t, containerStatus.BackendStatus(), ContainerRunning.String())
 
 	// BackendStatus is ContainerStopped when container status is ContainerStopped
 	containerStatus = ContainerStopped
-	assert.Equal(t, containerStatus.BackendStatus(ContainerRunning), ContainerStopped)
-	assert.Equal(t, containerStatus.BackendStatus(ContainerResourcesProvisioned), ContainerStopped)
+	assert.Equal(t, containerStatus.BackendStatus(), ContainerStopped.String())
 }
 
 type testContainerStatus struct {
